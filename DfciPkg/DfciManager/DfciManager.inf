@@ -34,6 +34,7 @@
   MsCorePkg/MsCorePkg.dec
   DfciPkg/DfciPkg.dec
   ZeroTouchPkg/ZeroTouchPkg.dec
+  MsGraphicsPkg/MsGraphicsPkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -81,3 +82,4 @@
   AND gDfciApplyPermissionsProtocolGuid
   AND gDfciApplySettingsProtocolGuid
   AND gDfciApplyIdentityProtocolGuid
+  AND gMsSWMProtocolGuid

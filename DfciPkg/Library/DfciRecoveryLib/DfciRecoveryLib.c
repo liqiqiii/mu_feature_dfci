@@ -96,7 +96,7 @@ GetRecoveryChallenge (
   // Grab a timestamp...
   if (!EFI_ERROR (Status)) {
     Status = gRT->GetTime (&NewChallenge->Timestamp, NULL);
-    DEBUG ((DEBUG_VERBOSE, "%a: GetTime() = %r\n", __FUNCTION__, Status));
+    DEBUG ((DEBUG_ERROR, "%a: GetTime() = %r\n", __FUNCTION__, Status));
   }
 
   //
@@ -108,7 +108,7 @@ GetRecoveryChallenge (
                             DFCI_RECOVERY_NONCE_SIZE,
                             &NewChallenge->Nonce.Bytes[0]
                             );
-    DEBUG ((DEBUG_VERBOSE, "%a: GetRNG(Ctr256) = %r\n", __FUNCTION__, Status));
+    DEBUG ((DEBUG_ERROR, "%a: GetRNG(Ctr256) = %r\n", __FUNCTION__, Status));
     //
     // If Ctr256 failed, let's try Hmac256
     if (EFI_ERROR (Status)) {
@@ -118,7 +118,7 @@ GetRecoveryChallenge (
                               DFCI_RECOVERY_NONCE_SIZE,
                               &NewChallenge->Nonce.Bytes[0]
                               );
-      DEBUG ((DEBUG_VERBOSE, "%a: GetRNG(Hmac256) = %r\n", __FUNCTION__, Status));
+      DEBUG ((DEBUG_ERROR, "%a: GetRNG(Hmac256) = %r\n", __FUNCTION__, Status));
       //
       // Finally, try Hash256
       if (EFI_ERROR (Status)) {
@@ -128,7 +128,17 @@ GetRecoveryChallenge (
                                 DFCI_RECOVERY_NONCE_SIZE,
                                 &NewChallenge->Nonce.Bytes[0]
                                 );
-        DEBUG ((DEBUG_VERBOSE, "%a: GetRNG(Hash256) = %r\n", __FUNCTION__, Status));
+        DEBUG ((DEBUG_ERROR, "%a: GetRNG(Hash256) = %r\n", __FUNCTION__, Status));
+        if (EFI_ERROR (Status)) {
+          DEBUG ((DEBUG_INFO, "PwdPolicy will use default RNG algorithm\n"));
+          Status = RngProtocol->GetRNG (
+                                  RngProtocol,
+                                  NULL,
+                                  DFCI_RECOVERY_NONCE_SIZE,
+                                  &NewChallenge->Nonce.Bytes[0]
+                                  );
+          DEBUG ((DEBUG_INFO, "GetRNG's default algorithm - Status = %r\n", Status));
+        }
       }
     }
   }
@@ -158,6 +168,7 @@ GetRecoveryChallenge (
     NewChallenge->MultiString[0] = '\0';
     Status                       = DfciIdSupportGetSerialNumber (&Element, &ElementSize);
     if (!EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "%a: SerialNumber Element = %a\n", __FUNCTION__, Element));
       Status = AsciiStrnCatS (&NewChallenge->MultiString[0], DFCI_MULTI_STRING_MAX_SIZE, Element, ElementSize - sizeof (CHAR8));
       FreePool (Element);
     }
@@ -165,6 +176,7 @@ GetRecoveryChallenge (
     if (!EFI_ERROR (Status)) {
       Status = DfciIdSupportGetProductName (&Element, &ElementSize);
       if (!EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "%a: ProductName = %a\n", __FUNCTION__, Element));
         Status = AsciiStrnCatS (&NewChallenge->MultiString[0], DFCI_MULTI_STRING_MAX_SIZE, Element, ElementSize - sizeof (CHAR8));
         FreePool (Element);
       }
@@ -173,6 +185,7 @@ GetRecoveryChallenge (
     if (!EFI_ERROR (Status)) {
       Status = DfciIdSupportGetManufacturer (&Element, &ElementSize);
       if (!EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "%a: Manufacturer Element = %a\n", __FUNCTION__, Element));
         Status = AsciiStrnCatS (&NewChallenge->MultiString[0], DFCI_MULTI_STRING_MAX_SIZE, Element, ElementSize - sizeof (CHAR8));
         FreePool (Element);
       }
@@ -243,7 +256,7 @@ EncryptRecoveryChallenge (
   //       passing it into the Pkcs1v2Encrypt() function. There are merits to
   //       each implementation.
   Status = gBS->LocateProtocol (&gEfiRngProtocolGuid, NULL, (VOID **)&RngProtocol);
-  DEBUG ((DEBUG_VERBOSE, "%a: LocateProtocol(RNG) = %r\n", __FUNCTION__, Status));
+  DEBUG ((DEBUG_ERROR, "%a: LocateProtocol(RNG) = %r\n", __FUNCTION__, Status));
   // Assuming we found the protocol, let's grab a seed.
   if (!EFI_ERROR (Status)) {
     Status = RngProtocol->GetRNG (
@@ -252,7 +265,7 @@ EncryptRecoveryChallenge (
                             RANDOM_SEED_BUFFER_SIZE,
                             &ExtraSeed[0]
                             );
-    DEBUG ((DEBUG_VERBOSE, "%a: GetRNG(Ctr256) = %r\n", __FUNCTION__, Status));
+    DEBUG ((DEBUG_ERROR, "%a: GetRNG(Ctr256) = %r\n", __FUNCTION__, Status));
     //
     // If Ctr256 failed, let's try Hmac256
     if (EFI_ERROR (Status)) {
@@ -262,7 +275,7 @@ EncryptRecoveryChallenge (
                               RANDOM_SEED_BUFFER_SIZE,
                               &ExtraSeed[0]
                               );
-      DEBUG ((DEBUG_VERBOSE, "%a: GetRNG(Hmac256) = %r\n", __FUNCTION__, Status));
+      DEBUG ((DEBUG_ERROR, "%a: GetRNG(Hmac256) = %r\n", __FUNCTION__, Status));
       //
       // Finally, try Hash256
       if (EFI_ERROR (Status)) {
@@ -272,29 +285,37 @@ EncryptRecoveryChallenge (
                                 RANDOM_SEED_BUFFER_SIZE,
                                 &ExtraSeed[0]
                                 );
-        DEBUG ((DEBUG_VERBOSE, "%a: GetRNG(Hash256) = %r\n", __FUNCTION__, Status));
+        DEBUG ((DEBUG_INFO, "PwdPolicy will use default RNG algorithm\n"));
+        if (EFI_ERROR (Status)) {
+          Status = RngProtocol->GetRNG (
+            RngProtocol,
+            NULL,  // Use default RNG algorithm
+            RANDOM_SEED_BUFFER_SIZE,
+            &ExtraSeed[0]
+            );
+        }
       }
     }
-  }
+}
 
-  //
-  // Now, we should be able to encrypt the data and be done with it.
-  if (!EFI_ERROR (Status)) {
-    if (!Pkcs1v2Encrypt (
-           PublicKey,
-           PublicKeySize,
-           (UINT8 *)Challenge,
-           ChallengeSize,
-           &ExtraSeed[0],
-           RANDOM_SEED_BUFFER_SIZE,
-           EncryptedData,
-           EncryptedDataSize
-           ))
-    {
-      DEBUG ((DEBUG_ERROR, "%a: Failed to encrypt the challenge!\n", __FUNCTION__));
-      Status = EFI_ABORTED;
-    }
+//
+// Now, we should be able to encrypt the data and be done with it.
+if (!EFI_ERROR (Status)) {
+  if (!Pkcs1v2Encrypt (
+         PublicKey,
+         PublicKeySize,
+         (UINT8 *)Challenge,
+         ChallengeSize,
+         &ExtraSeed[0],
+         RANDOM_SEED_BUFFER_SIZE,
+         EncryptedData,
+         EncryptedDataSize
+         ))
+  {
+    DEBUG ((DEBUG_ERROR, "%a: Failed to encrypt the challenge!\n", __FUNCTION__));
+    Status = EFI_ABORTED;
   }
+}
 
-  return Status;
+return Status;
 } // EncryptRecoveryChallenge()
